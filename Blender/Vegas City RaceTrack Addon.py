@@ -14,6 +14,7 @@ import bpy
 import math
 import mathutils
 import re
+import json
 
 # define constants
 rad_2_deg = 180 / math.pi
@@ -48,9 +49,13 @@ class ExportDataOperator(bpy.types.Operator):
         glb_path = "models/tracks/" + context.scene.track_name + ".glb"
         output_path += "Blender\\data\\" + context.scene.track_name + ".json"
 
-        # prepare output
-        output = "{\n"
-        output += "\t\"glb\": \"" + glb_path + "\""
+        # Data to be written
+        outputData = {
+            "name": context.scene.track_name,
+            "glb": glb_path,
+            "track": [],
+            "hotspots": []
+        }
 
         # keep track of all objects being exported
         object_list = []
@@ -61,34 +66,19 @@ class ExportDataOperator(bpy.types.Operator):
         # find hole we want to export
         for col in bpy.data.collections:
             
-            # find the collection holding the markers
+            # find the collection holding the track
             if (col.name.lower() == "track"):
-
-                output += ",\n\t\"track\": [\n"
                 
                 # grab and iterate the mesh objects in the collection
                 sel_objs = [obj for obj in col.objects if obj.type == 'MESH']
-                for obj_idx, obj in enumerate(sel_objs):
+                for obj in sel_objs:
 
-                    output += "\t\t{\n\t\t\t\"polygon\": [\n"
+                    trackData = {
+                        "polygon": []
+                    }
 
                     vertices = []
                     indices = []
-
-                    # grab the position
-                    pos_x = -obj.location.x
-                    pos_y = obj.location.z
-                    pos_z = -obj.location.y
-        
-                    # grab the rotation
-                    rot_x = -obj.rotation_euler.x * rad_2_deg
-                    rot_y = -obj.rotation_euler.z * rad_2_deg
-                    rot_z = obj.rotation_euler.y * rad_2_deg
-
-                    # grab the scale
-                    sca_x = obj.scale.x
-                    sca_y = obj.scale.z
-                    sca_z = obj.scale.y
 
                     # ensure mesh data is triangulated
                     mesh = obj.data
@@ -106,26 +96,65 @@ class ExportDataOperator(bpy.types.Operator):
                         vertices.append(v)
                         indices.append(index)
                         index = index + 1
-                        # output += "[" + str(v.x) + ", " + str(v.y) + ", " + str(v.z) + "]\n"
 
                     polygon = sort_radial_sweep(vertices, indices)
-                    for idx, p in enumerate(polygon):
+                    for p in polygon:
                         v = vertices[p]
 
-                        output += "\t\t\t\t{ \"x\": " + str(v.x) + ", \"y\": " + str(v.y) + ", \"z\": " + str(v.z) + "}"
-                        if idx < len(polygon) - 1:
-                            output += ","
-                        output += "\n"
-                        print(v)
-                    
-                    output += "\t\t\t]\n\t\t}"
-                    if obj_idx < len(sel_objs) - 1:
-                        output += ","
-                    output += "\n"
-                
-                output += "\t]\n"
-                
+                        trackData["polygon"].append({
+                            "x": str(v.x),
+                            "y": str(v.y),
+                            "z": str(v.z)
+                        })
 
+                    outputData["track"].append(trackData)
+
+            # find the collection holding the hotspots
+            if (col.name.lower() == "hotspots"):
+                
+                # grab and iterate the mesh objects in the collection
+                sel_objs = [obj for obj in col.objects if obj.type == 'MESH']
+                for obj in sel_objs:
+
+                    hotspotData = {
+                        "hotspotType": "none",
+                        "polygon": []
+                    }
+
+                    if "hotspotType" in obj:
+                        hotspotData["hotspotType"] = str(obj["hotspotType"])
+
+                    vertices = []
+                    indices = []
+
+                    # ensure mesh data is triangulated
+                    mesh = obj.data
+                    mesh.calc_loop_triangles()
+
+                    # grab the vertices
+                    index = 0
+                    for vert in mesh.vertices:
+                        co_final = obj.matrix_world @ vert.co
+                        x = -co_final.x
+                        y = co_final.z
+                        z = -co_final.y
+                        v = mathutils.Vector((x, y, z))
+
+                        vertices.append(v)
+                        indices.append(index)
+                        index = index + 1
+
+                    polygon = sort_radial_sweep(vertices, indices)
+                    for p in polygon:
+                        v = vertices[p]
+
+                        hotspotData["polygon"].append({
+                            "x": str(v.x),
+                            "y": str(v.y),
+                            "z": str(v.z)
+                        })
+
+                    outputData["hotspots"].append(hotspotData)
                         
             # find the collection holding the cannon data
             elif (col.name.lower() == "obstacles"):
@@ -135,8 +164,8 @@ class ExportDataOperator(bpy.types.Operator):
                 for obj in sel_objs:
 
                     # leave a line between each mesh
-                    if not is_first:
-                        output += "\n\n"
+                    #if not is_first:
+                        #output += "\n\n"
                     is_first = False
                     
                     # grab the position
@@ -169,14 +198,14 @@ class ExportDataOperator(bpy.types.Operator):
                             object_list_dynamic.append(obj.name)
                         else:
                             object_list.append(obj.name)
-                        output += "export const " + obj.name + " = new crazygolf.shapes.PlaneShapeDefinition({\n"
+                        #output += "export const " + obj.name + " = new crazygolf.shapes.PlaneShapeDefinition({\n"
                         
                         # output the sphere data
-                        output += "\tposition: new Vector3(" + str(pos_x) + ", " + str(pos_y) + ", " + str(pos_z) + "),\n"
-                        output += "\trotation: Quaternion.Euler(" + str(rot_x) + ", " + str(rot_y) + ", " + str(rot_z) + ")\n"
+                        #output += "\tposition: new Vector3(" + str(pos_x) + ", " + str(pos_y) + ", " + str(pos_z) + "),\n"
+                        #output += "\trotation: Quaternion.Euler(" + str(rot_x) + ", " + str(rot_y) + ", " + str(rot_z) + ")\n"
                         
                         # end output for the object
-                        output += "})"
+                        #output += "})"
                         
                     # check for a cube/box
                     elif (obj.name.lower().startswith("cube") or obj.name.lower().startswith("box")):
@@ -231,15 +260,15 @@ class ExportDataOperator(bpy.types.Operator):
                             object_list_dynamic.append(obj.name)
                         else:
                             object_list.append(obj.name)
-                        output += "export const " + obj.name + " = new crazygolf.shapes.BoxShapeDefinition({\n"
+                        #output += "export const " + obj.name + " = new crazygolf.shapes.BoxShapeDefinition({\n"
                         
                         # output the sphere data
-                        output += "\tposition: new Vector3(" + str(pos_x) + ", " + str(pos_y) + ", " + str(pos_z) + "),\n"
-                        output += "\trotation: Quaternion.Euler(" + str(rot_x) + ", " + str(rot_y) + ", " + str(rot_z) + "),\n"
-                        output += "\tscale: new Vector3(" + str(sca_x) + ", " + str(sca_y) + ", " + str(sca_z) + ")\n"
+                        #output += "\tposition: new Vector3(" + str(pos_x) + ", " + str(pos_y) + ", " + str(pos_z) + "),\n"
+                        #output += "\trotation: Quaternion.Euler(" + str(rot_x) + ", " + str(rot_y) + ", " + str(rot_z) + "),\n"
+                        #output += "\tscale: new Vector3(" + str(sca_x) + ", " + str(sca_y) + ", " + str(sca_z) + ")\n"
                         
                         # end output for the object
-                        output += "})"
+                        #output += "})"
 
                     # check for an explicitly convex mesh
                     elif (obj.name.lower().startswith("convex")):
@@ -253,10 +282,10 @@ class ExportDataOperator(bpy.types.Operator):
                             object_list_dynamic.append(obj.name)
                         else:
                             object_list.append(obj.name)
-                        output += "export const " + obj.name + " = new crazygolf.shapes.ConvexShapeDefinition({\n"
+                        #output += "export const " + obj.name + " = new crazygolf.shapes.ConvexShapeDefinition({\n"
 
                         # start the mesh data output
-                        output += "\tmeshData: {\n"
+                        #output += "\tmeshData: {\n"
                         
                         # output the vertices
                         is_first_vert = True
@@ -266,46 +295,46 @@ class ExportDataOperator(bpy.types.Operator):
                             x = -co_final.x
                             y = co_final.z
                             z = -co_final.y
-                            if not is_first_vert:
-                                output += ","
-                            else:
-                                is_first_vert = False
-                            output += "\n\t\t\t" + str(x) + ", " + str(y) + ", " + str(z)
-                        output += "\n\t\t],\n"
+                            #if not is_first_vert:
+                                #output += ","
+                            #else:
+                                #is_first_vert = False
+                            #output += "\n\t\t\t" + str(x) + ", " + str(y) + ", " + str(z)
+                        #output += "\n\t\t],\n"
                         
                         # then the indices/triangles
                         is_first_index = True
-                        output += "\t\tindices: ["
-                        for tri in mesh.loop_triangles:
-                            if not is_first_index:
-                                output += ","
-                            else:
-                                is_first_index = False
-                            output += "\n\t\t\t" + str(tri.vertices[0]) + ", " + str(tri.vertices[1]) + ", " + str(tri.vertices[2])
+                        #output += "\t\tindices: ["
+                        #for tri in mesh.loop_triangles:
+                            #if not is_first_index:
+                            #    output += ","
+                            #else:
+                            #    is_first_index = False
+                            #output += "\n\t\t\t" + str(tri.vertices[0]) + ", " + str(tri.vertices[1]) + ", " + str(tri.vertices[2])
                             
-                        output += "\n\t\t]\n"
+                        #output += "\n\t\t]\n"
                         
                         # end the mesh data output
-                        output += "\t},\n"
+                        #output += "\t},\n"
                         
                         # output the transform data
-                        output += "\tposition: new Vector3(" + str(pos_x) + ", " + str(pos_y) + ", " + str(pos_z) + "),\n"
-                        output += "\trotation: Quaternion.Euler(" + str(rot_x) + ", " + str(rot_y) + ", " + str(rot_z) + "),\n"
-                        output += "\tscale: new Vector3(" + str(sca_x) + ", " + str(sca_y) + ", " + str(sca_z) + ")\n"
+                        #output += "\tposition: new Vector3(" + str(pos_x) + ", " + str(pos_y) + ", " + str(pos_z) + "),\n"
+                        #output += "\trotation: Quaternion.Euler(" + str(rot_x) + ", " + str(rot_y) + ", " + str(rot_z) + "),\n"
+                        #output += "\tscale: new Vector3(" + str(sca_x) + ", " + str(sca_y) + ", " + str(sca_z) + ")\n"
                         
                         # end output for the object
-                        output += "})"
+                        #output += "})"
                                 
         
-        output += "}"
+        #output += "}"
 
         # write to the file
         print("EXPORTING DATA")
         print(output_path)
         self.report({'INFO'}, "Exported data to " + output_path)
-        file = open(output_path, "w")
-        file.write(output)
-        file.close()
+
+        with open(bpy.path.abspath(output_path), 'w') as f:
+            f.write(json.dumps(outputData, indent=4, sort_keys=True))
                 
         # report success
         return {'FINISHED'}
@@ -363,7 +392,7 @@ class ExportGLBOperator(bpy.types.Operator):
         return {'FINISHED'}
     
 # class to handle custom tool panel
-class CrazyGolfPanel(bpy.types.Panel):
+class RaceTrackPanel(bpy.types.Panel):
     
     # define panel data
     bl_idname = 'VIEW3D_PT_race_track'
@@ -388,7 +417,7 @@ class CrazyGolfPanel(bpy.types.Panel):
         
 # build a list of all custom tool panels
 CLASSES = [
-    CrazyGolfPanel,
+    RaceTrackPanel,
     ExportDataOperator,
     ExportGLBOperator
 ]
