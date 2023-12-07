@@ -54,14 +54,9 @@ class ExportDataOperator(bpy.types.Operator):
             "name": context.scene.track_name,
             "glb": glb_path,
             "track": [],
-            "hotspots": []
+            "hotspots": [],
+            "obstacles": []
         }
-
-        # keep track of all objects being exported
-        object_list = []
-
-        # keep track of all dynamic objects being exported
-        object_list_dynamic = []
 
         # find hole we want to export
         for col in bpy.data.collections:
@@ -157,16 +152,38 @@ class ExportDataOperator(bpy.types.Operator):
                     outputData["hotspots"].append(hotspotData)
                         
             # find the collection holding the cannon data
-            elif (col.name.lower() == "obstacles"):
+            elif (col.name.lower() == "obstacles" or col.name.lower() == "boundary"):
                 
                 # grab and iterate the mesh objects in the collection
                 sel_objs = [obj for obj in col.objects if obj.type == 'MESH']
                 for obj in sel_objs:
 
-                    # leave a line between each mesh
-                    #if not is_first:
-                        #output += "\n\n"
-                    is_first = False
+                    obstacleData = {
+                        "obstacleType": "none",
+                        "shape": "",
+                        "position": {
+                            "x": 0,
+                            "y": 0,
+                            "z": 0
+                        },
+                        "rotation": {
+                            "x": 0,
+                            "y": 0,
+                            "z": 0
+                        },
+                        "scale": {
+                            "x": 0,
+                            "y": 0,
+                            "z": 0
+                        },
+                        "vertices": [],
+                        "indices": []
+                    }
+
+                    if col.name.lower() == "boundary":
+                        obstacleData["obstacleType"] = "boundary"
+                    elif "obstacleType" in obj:
+                        obstacleData["obstacleType"] = str(obj["obstacleType"])
                     
                     # grab the position
                     pos_x = -obj.location.x
@@ -190,143 +207,54 @@ class ExportDataOperator(bpy.types.Operator):
                         obj.name
                     )
                     
-                    # check for a plane/quad
-                    if (obj.name.lower().startswith("plane") or obj.name.lower().startswith("quad")):
+                    obstacleData["shape"] = "box"
+                    
+                    # set origin to geometry
+                    obj.select_set(state=True)
+                    
+                    context.view_layer.objects.active = obj
+                    bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
                         
-                        # start output for the object
-                        if(obj.name.lower().endswith("dynamic")):
-                            object_list_dynamic.append(obj.name)
-                        else:
-                            object_list.append(obj.name)
-                        #output += "export const " + obj.name + " = new crazygolf.shapes.PlaneShapeDefinition({\n"
+                    # check the vertices for edits - identify the bounds in local space
+                    # NOTE : this won't necessarily handle well when edits other than moving faces along their normals have been made, making the shape no longer a AABB
+                    min_x = 999
+                    min_y = 999
+                    min_z = 999
+                    max_x = -999
+                    max_y = -999
+                    max_z = -999
+                    for vert in obj.data.vertices:
+                        if (vert.co.x < min_x):
+                            min_x = vert.co.x
+                        if (vert.co.x > max_x):
+                            max_x = vert.co.x
+                        if (vert.co.y < min_y):
+                            min_y = vert.co.y
+                        if (vert.co.y > max_y):
+                            max_y = vert.co.y
+                        if (vert.co.z < min_z):
+                            min_z = vert.co.z
+                        if (vert.co.z > max_z):
+                            max_z = vert.co.z
                         
-                        # output the sphere data
-                        #output += "\tposition: new Vector3(" + str(pos_x) + ", " + str(pos_y) + ", " + str(pos_z) + "),\n"
-                        #output += "\trotation: Quaternion.Euler(" + str(rot_x) + ", " + str(rot_y) + ", " + str(rot_z) + ")\n"
+                    # work out the overall size, when combined with object scale
+                    sca_x *= (max_x - min_x)
+                    sca_y *= (max_z - min_z)
+                    sca_z *= (max_y - min_y)
                         
-                        # end output for the object
-                        #output += "})"
+                    obstacleData["position"]["x"] = str(pos_x)
+                    obstacleData["position"]["y"] = str(pos_y)
+                    obstacleData["position"]["z"] = str(pos_z)
                         
-                    # check for a cube/box
-                    elif (obj.name.lower().startswith("cube") or obj.name.lower().startswith("box")):
+                    obstacleData["rotation"]["x"] = str(rot_x)
+                    obstacleData["rotation"]["y"] = str(rot_y)
+                    obstacleData["rotation"]["z"] = str(rot_z)
                         
-                        # set origin to geometry
-                        obj.select_set(state=True)
-                        context.view_layer.objects.active = obj
-                        bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')
-                        
-                        # check the vertices for edits - identify the bounds in local space
-                        # NOTE : this won't necessarily handle well when edits other than moving faces along their normals have been made, making the shape no longer a AABB
-                        min_x = 999
-                        min_y = 999
-                        min_z = 999
-                        max_x = -999
-                        max_y = -999
-                        max_z = -999
-                        for vert in obj.data.vertices:
-                            if (vert.co.x < min_x):
-                                min_x = vert.co.x
-                            if (vert.co.x > max_x):
-                                max_x = vert.co.x
-                            if (vert.co.y < min_y):
-                                min_y = vert.co.y
-                            if (vert.co.y > max_y):
-                                max_y = vert.co.y
-                            if (vert.co.z < min_z):
-                                min_z = vert.co.z
-                            if (vert.co.z > max_z):
-                                max_z = vert.co.z
-                        
-                        # work out the overall size, when combined with object scale
-                        sca_x *= (max_x - min_x)
-                        sca_y *= (max_z - min_z)
-                        sca_z *= (max_y - min_y)
-                        
-                        # work out a position offset based on center point of vertices
-                        off_x = (max_x + min_x) / 2
-                        off_y = (max_y + min_y) / 2
-                        off_z = (max_z + min_z) / 2
-                        
-                        # adjust the offset based on object tranform
-                        off = obj.matrix_world @ mathutils.Vector((off_x, off_y, off_z))
-                        
-                        # apply the offset
-                        #pos_x += -off.x
-                        #pos_y += off.z
-                        #pos_z += -off.y
-                        
-                        # start output for the object
-                        if(obj.name.lower().endswith("dynamic")):
-                            object_list_dynamic.append(obj.name)
-                        else:
-                            object_list.append(obj.name)
-                        #output += "export const " + obj.name + " = new crazygolf.shapes.BoxShapeDefinition({\n"
-                        
-                        # output the sphere data
-                        #output += "\tposition: new Vector3(" + str(pos_x) + ", " + str(pos_y) + ", " + str(pos_z) + "),\n"
-                        #output += "\trotation: Quaternion.Euler(" + str(rot_x) + ", " + str(rot_y) + ", " + str(rot_z) + "),\n"
-                        #output += "\tscale: new Vector3(" + str(sca_x) + ", " + str(sca_y) + ", " + str(sca_z) + ")\n"
-                        
-                        # end output for the object
-                        #output += "})"
-
-                    # check for an explicitly convex mesh
-                    elif (obj.name.lower().startswith("convex")):
-                        
-                        # ensure mesh data is triangulated
-                        mesh = obj.data
-                        mesh.calc_loop_triangles()
-
-                        # start output for the object
-                        if(obj.name.lower().endswith("dynamic")):
-                            object_list_dynamic.append(obj.name)
-                        else:
-                            object_list.append(obj.name)
-                        #output += "export const " + obj.name + " = new crazygolf.shapes.ConvexShapeDefinition({\n"
-
-                        # start the mesh data output
-                        #output += "\tmeshData: {\n"
-                        
-                        # output the vertices
-                        is_first_vert = True
-                        output += "\t\tvertices: ["
-                        for vert in mesh.vertices:
-                            co_final = obj.matrix_world @ vert.co
-                            x = -co_final.x
-                            y = co_final.z
-                            z = -co_final.y
-                            #if not is_first_vert:
-                                #output += ","
-                            #else:
-                                #is_first_vert = False
-                            #output += "\n\t\t\t" + str(x) + ", " + str(y) + ", " + str(z)
-                        #output += "\n\t\t],\n"
-                        
-                        # then the indices/triangles
-                        is_first_index = True
-                        #output += "\t\tindices: ["
-                        #for tri in mesh.loop_triangles:
-                            #if not is_first_index:
-                            #    output += ","
-                            #else:
-                            #    is_first_index = False
-                            #output += "\n\t\t\t" + str(tri.vertices[0]) + ", " + str(tri.vertices[1]) + ", " + str(tri.vertices[2])
-                            
-                        #output += "\n\t\t]\n"
-                        
-                        # end the mesh data output
-                        #output += "\t},\n"
-                        
-                        # output the transform data
-                        #output += "\tposition: new Vector3(" + str(pos_x) + ", " + str(pos_y) + ", " + str(pos_z) + "),\n"
-                        #output += "\trotation: Quaternion.Euler(" + str(rot_x) + ", " + str(rot_y) + ", " + str(rot_z) + "),\n"
-                        #output += "\tscale: new Vector3(" + str(sca_x) + ", " + str(sca_y) + ", " + str(sca_z) + ")\n"
-                        
-                        # end output for the object
-                        #output += "})"
-                                
-        
-        #output += "}"
+                    obstacleData["scale"]["x"] = str(sca_x)
+                    obstacleData["scale"]["y"] = str(sca_y)
+                    obstacleData["scale"]["z"] = str(sca_z)
+                    
+                    outputData["obstacles"].append(obstacleData)
 
         # write to the file
         print("EXPORTING DATA")
