@@ -175,9 +175,7 @@ class ExportDataOperator(bpy.types.Operator):
                             "x": 0,
                             "y": 0,
                             "z": 0
-                        },
-                        "vertices": [],
-                        "indices": []
+                        }
                     }
 
                     if col.name.lower() == "boundary":
@@ -308,7 +306,6 @@ class ExportGLBOperator(bpy.types.Operator):
             export_format = "GLB",
             export_apply = True,
             export_cameras = False,
-            export_selected = False,
             use_selection = False,
             use_visible = False,
             use_renderable = False,
